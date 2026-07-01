@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>بیسیم خادمین امام شهید</title>
+    <!-- لود کردن مستقیم SDK زگوکلاد از CDN معتبر -->
+    <script src="https://unpkg.com/zego-express-engine-webrtc@3.0.0/index.js"></script>
+    <style>
+        body {
+            font-family: Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .container {
+            text-align: center;
+            width: 90%;
+            max-width: 400px;
+            background: #1e1e1e;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        select {
+            width: 100%;
+            padding: 10px;
+            margin: 15px 0;
+            background-color: #333;
+            color: white;
+            border: 1px solid #555;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        /* دکمه PTT */
+        .ptt-btn {
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            border: none;
+            background: radial-gradient(circle, #ff3b30 0%, #a30000 100%);
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 0 20px rgba(255, 59, 48, 0.6);
+            outline: none;
+            user-select: none;
+            -webkit-user-select: none;
+            transition: transform 0.1s;
+        }
+        .ptt-btn:active {
+            transform: scale(0.95);
+            background: radial-gradient(circle, #4cd964 0%, #008f11 100%);
+            box-shadow: 0 0 30px rgba(76, 217, 100, 0.8);
+        }
+        .status {
+            margin-top: 20px;
+            font-size: 14px;
+            color: #aaa;
+        }
+        .status-active {
+            color: #4cd964;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>بیسیم خادمین 🖁</h2>
+    
+    <label for="channelSelect">انتخاب کانال صوتی (۶ کانال):</label>
+    <select id="channelSelect" onchange="changeChannel()">
+        <option value="room_1">کانال ۱ (عملیاتی)</option>
+        <option value="room_2">کانال ۲ (پشتیبانی)</option>
+        <option value="room_3">کانال ۳ (مدیریت)</option>
+        <option value="room_4">کانال ۴</option>
+        <option value="room_5">کانال ۵</option>
+        <option value="room_6">کانال ۶</option>
+    </select>
+
+    <!-- دکمه فشاری Push-to-Talk -->
+    <button class="ptt-btn" id="pttButton" disabled>اتصال</button>
+
+    <div class="status" id="statusText">در حال راه‌اندازی سیستم صوتی...</div>
+</div>
+
+<script>
+    // اطلاعات پروژه زگوکلاد تو
+    const appID = 181152766; 
+    // آدرس وب‌سوکت که تو اسکرین‌شاتت بود
+    const server = "wss://webliveroom181152766-api.coolzcloud.com/ws"; 
+    
+    // !!! امنیت موقت !!!
+    // برای تست، توکن موقت را از پنل ZEGOCLOUD تولید کن و اینجا بذار.
+    // بعداً این بخش را با سرور یا ورکر امن خودکار می‌کنیم.
+    const token = "04AAAAAGpGvuEADOL42LRbEpu5xCMVBAC23Lb4QYPeZsiD1iLIhNoekA00ktRs8U+wcIT3/v0hAGGmcOXY7SHEvw1lFK4Nkpz5eUlKFm4zGGaSM+rDKi63AkzJPlsB4eqZy0OjW+jNpO/YrLVTvPClYNx/tNclvKrxXIxUCOgl/A95hPcpIzIDhiIsguvNHrWOjyLruZzyGbhidbrVUgPk2/n4NLy/VS3K7BC+GmLoi+iaABzz4TYrWYIUlCQMRgrcbAHuQ01RCqpN07rudVsB"; 
+
+    // شناسه تصادفی برای کاربر
+    const userID = "pooria.bisim" + Math.floor(Math.random() * 100000);
+    const userName = "پوریا_" + userID;
+
+    let zg;
+    let currentRoom = "room_1";
+    let isConnected = false;
+    let streamID = "stream_" + userID;
+    let localStream = null;
+
+    // شروع و مقداردهی اولیه SDK
+    async function initSDK() {
+        try {
+            // ساخت موتور Zego
+            zg = new ZegoExpressEngine(appID, server);
+            
+            // لاگین به اتاق پیش‌فرض
+            await joinRoom(currentRoom);
+            
+            // گوش دادن به استریم‌های صوتی دیگران در کانال
+            zg.on('roomStreamUpdate', async (roomID, updateType, streamList) => {
+                if (updateType === 'ADD') {
+                    for (let stream of streamList) {
+                        // پخش صدای بقیه کاربران کانال
+                        const remoteStream = await zg.startPlayingStream(stream.streamID);
+                        const audio = document.createElement('audio');
+                        audio.srcObject = remoteStream;
+                        audio.autoplay = true;
+                        document.body.appendChild(audio);
+                    }
+                }
+            }
+            );
+
+            // فعال کردن دکمه بیسیم
+            const pttButton = document.getElementById('pttButton');
+            pttButton.disabled = false;
+            pttButton.innerText = "فشار بده صحبت کن";
+            document.getElementById('statusText').innerText = `متصل به کانال ۱. آماده به رزم!`;
+            
+            // مدیریت رویدادهای لمس و کلیک برای موبایل و دسکتاپ
+            setupPTTEvents(pttButton);
+
+        } catch (error) {
+            console.error("خطا در راه‌اندازی:", error);
+            document.getElementById('statusText').innerText = "خطا در اتصال! توکن را بررسی کنید.";
+        }
+    }
+
+    // ورود به کانال (اتاق)
+    async function joinRoom(roomId) {
+        document.getElementById('statusText').innerText = `در حال ورود به کانال ${roomId}...`;
+        await zg.loginRoom(roomId, token, { userID, userName }, { userUpdate: true });
+        currentRoom = roomId;
+        isConnected = true;
+    }
+
+    // تغییر کانال صوتی
+    async function changeChannel() {
+        if (!isConnected) return;
+        
+        const newRoom = document.getElementById('channelSelect').value;
+        document.getElementById('statusText').innerText = "تغییر کانال...";
+        
+        // خروج از کانال قبلی
+        await zg.logoutRoom(currentRoom);
+        
+        // ورود به کانال جدید
+        await joinRoom(newRoom);
+        document.getElementById('statusText').innerText = `به کانال جدید منتقل شدید.`;
+    }
+
+    // ثبت رویدادهای فشردن دکمه (Push-to-Talk)
+    function setupPTTEvents(button) {
+        // برای موبایل (PWA روی آیفون و اندروید)
+        button.addEventListener('touchstart', startTalking);
+        button.addEventListener('touchend', stopTalking);
+        
+        // برای دسکتاپ و تست مرورگر
+        button.addEventListener('mousedown', startTalking);
+        button.addEventListener('mouseup', stopTalking);
+    }
+
+    // شروع صحبت کردن (Push)
+    async function startTalking(e) {
+        e.preventDefault();
+        document.getElementById('statusText').innerHTML = "<span class='status-active'>🔴 در حال ارسال صدا (بوق آزاد)...</span>";
+        
+        try {
+            // دریافت دسترسی به میکروفون
+            localStream = await zg.createStream({
+                camera: {
+                    audio: true,
+                    video: false // فقط صدا می‌خواهیم
+                }
+            });
+            // ارسال صدا به سرور جهت پخش برای بقیه در این کانال
+            zg.startPublishingStream(streamID, localStream);
+        } catch (err) {
+            console.error("میکروفون فعال نشد:", err);
+            document.getElementById('statusText').innerText = "خطا در دسترسی به میکروفون!";
+        }
+    }
+
+    // قطع صحبت (Release)
+    function stopTalking(e) {
+        if (e) e.preventDefault();
+        document.getElementById('statusText').innerText = "آماده شنیدن (اور)...";
+        
+        if (localStream) {
+            // قطع ارسال صدا
+            zg.stopPublishingStream(streamID);
+            zg.destroyStream(localStream);
+            localStream = null;
+        }
+    }
+
+    // شروع پروسه لودینگ
+    window.onload = initSDK;
+</script>
+
+</body>
+</html>
