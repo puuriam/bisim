@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>بیسیم خادمین امام شهید</title>
-    <!-- لود کردن مستقیم SDK زگوکلاد از CDN معتبر -->
+    <!-- لود کردن مستقیم SDK رسمی و پایدار زگوکلاد -->
     <script src="https://unpkg.com/zego-express-engine-webrtc@3.0.0/index.js"></script>
     <style>
         body {
@@ -36,6 +36,7 @@
             border: 1px solid #555;
             border-radius: 8px;
             font-size: 16px;
+            text-align: center;
         }
         /* دکمه PTT */
         .ptt-btn {
@@ -58,6 +59,11 @@
             transform: scale(0.95);
             background: radial-gradient(circle, #4cd964 0%, #008f11 100%);
             box-shadow: 0 0 30px rgba(76, 217, 100, 0.8);
+        }
+        .ptt-btn:disabled {
+            background: #555;
+            box-shadow: none;
+            cursor: not-allowed;
         }
         .status {
             margin-top: 20px;
@@ -86,60 +92,77 @@
     </select>
 
     <!-- دکمه فشاری Push-to-Talk -->
-    <button class="ptt-btn" id="pttButton" disabled>اتصال</button>
+    <button class="ptt-btn" id="pttButton" disabled>اتصال...</button>
 
-    <div class="status" id="statusText">در حال راه‌اندازی سیستم صوتی...</div>
+    <div class="status" id="statusText">در حال اتصال به سرور صوتی...</div>
 </div>
 
 <script>
-    // اطلاعات پروژه زگوکلاد پوریا
+    // اطلاعات کانفیگ زگوکلاد
     const appID = 181152766; 
     const server = "wss://webliveroom181152766-api.coolzcloud.com/ws"; 
     
-    // توکن جدید که از اسکرین‌شات برداشتم
-    const token = "04AAAAAGpG1N0ADBAHWvVTrxJ2T2buZQCu70JppXeFuqaNddS60zU+6Y47bAsmi8fvGWZ0Ko3Mt1VS1bteMk003wLWd3+mezqRoebUIPZIk1wPkWzNyfgJ2GVl3dogOO7wdxG9rRn7ekyjxxohWRyMercWvEYbeLU9RuCL4KX4AOrLyhW5IQaDh2Pbmj6YR5VkiqXl9XyruHGgt+ZQN3FK7nojDDUdSk6/FnUD+VM/k9Q/lMv1H9dVwlQyeqQn5jn2keLjusHHAQ==";
-    // !!! اصلاح حیاتی: یوزرآیدی باید دقیقاً مطابق پنل باشد !!!
+    // توکنی که از پنل برای userID = bisim ساختی رو اینجا پیست کن
+    const token = "04AAAAAGpG1N0ADBAHWvVTrxJ2T2buZQCu70JppXeFuqaNddS60zU+6Y47bAsmi8fvGWZ0Ko3Mt1VS1bteMk003wLWd3+mezqRoebUIPZIk1wPkWzNyfgJ2GVl3dogOO7wdxG9rRn7ekyjxxohWRyMercWvEYbeLU9RuCL4KX4AOrLyhW5IQaDh2Pbmj6YR5VkiqXl9XyruHGgt+ZQN3FK7nojDDUdSk6/FnUD+VM/k9Q/lMv1H9dVwlQyeqQn5jn2keLjusHHAQ=="; 
+
+    // یوزرآیدی ثابت برای هماهنگی کامل با توکن پنل
     const userID = "bisim"; 
     const userName = "پوریا";
 
-    let zg;
+    let zg = null;
     let currentRoom = "room_1";
     let isConnected = false;
-    let streamID = "stream_" + userID + "_" + Date.now(); // برای یکتا بودن استریم
     let localStream = null;
+    let streamID = "stream_bisim_voice"; // شناسه استریم صوتی ما
 
+    // شروع و مقداردهی اولیه SDK
     async function initSDK() {
         try {
+            // ۱. ایجاد آبجکت اصلی موتور زگوکلاد
             zg = new ZegoExpressEngine(appID, server);
             
-            // گوش دادن به استریم‌ها قبل از لاگین
+            // ۲. گوش دادن به رویدادهای اضافه یا حذف شدن صدا از کانال
             zg.on('roomStreamUpdate', async (roomID, updateType, streamList) => {
                 if (updateType === 'ADD') {
                     for (let stream of streamList) {
+                        // صدای دیگران را پخش کن
                         const remoteStream = await zg.startPlayingStream(stream.streamID);
                         const audio = document.createElement('audio');
                         audio.srcObject = remoteStream;
                         audio.autoplay = true;
+                        audio.id = "audio_" + stream.streamID;
                         document.body.appendChild(audio);
+                    }
+                } else if (updateType === 'DELETE') {
+                    for (let stream of streamList) {
+                        const audio = document.getElementById("audio_" + stream.streamID);
+                        if (audio) {
+                            audio.srcObject = null;
+                            audio.remove();
+                        }
                     }
                 }
             });
 
+            // ۳. ورود به اتاق (کانال ۱)
             await joinRoom(currentRoom);
 
+            // فعال کردن دکمه بیسیم
             const pttButton = document.getElementById('pttButton');
             pttButton.disabled = false;
             pttButton.innerText = "فشار بده صحبت کن";
             document.getElementById('statusText').innerText = `متصل به کانال ۱. آماده به رزم!`;
             
+            // فعال کردن مدیریت کلیک و لمس
             setupPTTEvents(pttButton);
 
         } catch (error) {
-            console.error("خطا در راه‌اندازی:", error);
-            document.getElementById('statusText').innerText = "خطای اتصال! احتمالا توکن منقضی شده.";
+            console.error("خطا در راه‌اندازی زگو:", error);
+            document.getElementById('statusText').innerHTML = "<span style='color:#ff3b30;'>خطای اتصال! لطفاً توکن جدید در کد قرار دهید.</span>";
         }
     }
 
+    // ورود به اتاق
     async function joinRoom(roomId) {
         document.getElementById('statusText').innerText = `در حال ورود به کانال ${roomId}...`;
         await zg.loginRoom(roomId, token, { userID, userName }, { userUpdate: true });
@@ -147,44 +170,79 @@
         isConnected = true;
     }
 
+    // تغییر کانال صوتی
     async function changeChannel() {
-        if (!isConnected) return;
+        if (!isConnected || !zg) return;
+        
         const newRoom = document.getElementById('channelSelect').value;
+        const pttButton = document.getElementById('pttButton');
+        
+        pttButton.disabled = true;
         document.getElementById('statusText').innerText = "تغییر کانال...";
-        await zg.logoutRoom(currentRoom);
-        await joinRoom(newRoom);
-        document.getElementById('statusText').innerText = `به کانال ${newRoom} منتقل شدید.`;
+        
+        try {
+            // خروج از کانال قبلی
+            await zg.logoutRoom(currentRoom);
+            // ورود به کانال جدید
+            await joinRoom(newRoom);
+            
+            pttButton.disabled = false;
+            document.getElementById('statusText').innerText = `به کانال ${newRoom.replace("room_", "")} منتقل شدید.`;
+        } catch (err) {
+            console.error("خطا در تغییر کانال:", err);
+            document.getElementById('statusText').innerText = "خطا در تغییر کانال!";
+        }
     }
 
+    // مدیریت رویدادهای فشردن دکمه (Push-to-Talk)
     function setupPTTEvents(button) {
+        // برای موبایل (iOS و Android)
         button.addEventListener('touchstart', startTalking);
         button.addEventListener('touchend', stopTalking);
+        
+        // برای دسکتاپ
         button.addEventListener('mousedown', startTalking);
         button.addEventListener('mouseup', stopTalking);
     }
 
+    // شروع صحبت کردن
     async function startTalking(e) {
-        e.preventDefault();
-        document.getElementById('statusText').innerHTML = "<span class='status-active'>🔴 در حال ارسال صدا...</span>";
+        if (e) e.preventDefault();
+        document.getElementById('statusText').innerHTML = "<span class='status-active'>🔴 در حال ارسال صدا (بوق آزاد)...</span>";
+        
         try {
-            localStream = await zg.createStream({ audio: true, video: false });
-            zg.startPublishingStream(streamID, localStream);
+            // دریافت دسترسی فقط میکروفون
+            localStream = await zg.createStream({
+                camera: {
+                    audio: true,
+                    video: false
+                }
+            });
+            // ارسال صدا
+            await zg.startPublishingStream(streamID, localStream);
         } catch (err) {
-            console.error("خطا:", err);
-            document.getElementById('statusText').innerText = "خطا در میکروفون!";
+            console.error("میکروفون فعال نشد:", err);
+            document.getElementById('statusText').innerText = "خطا در دسترسی به میکروفون!";
         }
     }
 
-    function stopTalking(e) {
+    // قطع صحبت
+    async function stopTalking(e) {
         if (e) e.preventDefault();
         document.getElementById('statusText').innerText = "آماده شنیدن (اور)...";
-        if (localStream) {
-            zg.stopPublishingStream(streamID);
-            zg.destroyStream(localStream);
-            localStream = null;
+        
+        try {
+            if (localStream) {
+                zg.stopPublishingStream(streamID);
+                zg.destroyStream(localStream);
+                localStream = null;
+            }
+        } catch (err) {
+            console.error("خطا در قطع استریم:", err);
         }
     }
 
+    // شروع لودینگ پس از بالا آمدن صفحه
     window.onload = initSDK;
 </script>
 
